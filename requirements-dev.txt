@@ -1,0 +1,14 @@
+# Development requirements
+# Install with: pip install -r requirements-dev.txt
+
+# Testing
+pytest>=8.0.0
+pytest-cov>=4.1.0
+pytest-mock>=3.12.0
+
+# Code quality
+ruff>=0.3.0
+mypy>=1.8.0
+
+# Publishing
+-r requirements-publish.txt

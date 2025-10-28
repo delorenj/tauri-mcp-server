@@ -1,0 +1,304 @@
+# mise.toml - Tauri MCP Server Project Configuration
+# =================================================================
+# This configuration manages a dual-artifact project:
+# 1. Tauri Plugin (Rust) -> target/release/
+# 2. MCP TypeScript Server -> mcp-server-ts/build/
+#
+# Task Dependency Hierarchy:
+# - install:* tasks run in parallel (no dependencies)
+# - build:* tasks depend on their respective install tasks
+# - build task depends on both build:plugin and build:mcp
+# - publish:* tasks depend on their respective build tasks
+# - publish task depends on both publish:plugin and publish:mcp
+#
+# The configuration uses file-based triggers (sources/outputs) for
+# intelligent caching and rebuilds only when necessary.
+# =================================================================
+
+# =================================================================
+# TOOL MANAGEMENT
+# =================================================================
+# Mise manages all required tools for the project. This ensures
+# consistent tooling across all development environments.
+
+[tools]
+node = "latest"                   # For plugin guest-js building
+bun = "latest"                    # For MCP TypeScript server
+python = "latest"                 # For build.py and publish.py scripts
+cargo = "latest"                  # For Rust plugin compilation
+"cargo:cargo-binstall" = "latest" # For fast binary installation
+"pipx:uv" = "latest"              # Modern Python package manager
+
+# =================================================================
+# ENVIRONMENT VARIABLES
+# =================================================================
+# Set common environment variables for consistent builds
+
+[env]
+RUST_BACKTRACE = "1"
+CARGO_INCREMENTAL = "1"
+
+# =================================================================
+# INSTALLATION TASKS
+# =================================================================
+# These tasks install dependencies and can run in parallel.
+# They are idempotent and use file-based caching.
+
+[tasks."install:plugin"]
+description = "Install Rust dependencies for Tauri plugin"
+run = "cargo fetch"
+sources = ["Cargo.toml", "Cargo.lock"]
+outputs = ["target/.cargo-fetch-stamp"]
+
+[tasks."install:plugin-js"]
+description = "Install JavaScript dependencies for plugin guest code"
+run = "bun install"
+sources = ["package.json", "bun.lock"]
+outputs = ["node_modules/.install-stamp"]
+
+[tasks."install:mcp"]
+description = "Install TypeScript dependencies for MCP server"
+run = "cd mcp-server-ts && bun install"
+sources = ["mcp-server-ts/package.json", "mcp-server-ts/bun.lock"]
+outputs = ["mcp-server-ts/node_modules/.install-stamp"]
+
+[tasks."install:python"]
+description = "Install Python dependencies (if requirements exist)"
+run = """
+if [ -f requirements.txt ]; then
+  uv pip install -r requirements.txt
+elif [ -f pyproject.toml ]; then
+  uv pip install -e .
+fi
+"""
+sources = ["requirements.txt", "pyproject.toml"]
+outputs = [".venv/.install-stamp"]
+
+[tasks.install]
+description = "Install all project dependencies in parallel"
+depends = [
+  "install:plugin",
+  "install:plugin-js",
+  "install:mcp",
+  "install:python",
+]
+
+# =================================================================
+# BUILD TASKS
+# =================================================================
+# Hierarchical build tasks with proper dependency management.
+# Each build task specifies sources and outputs for caching.
+
+[tasks."build:plugin"]
+description = "Build Tauri plugin (Rust) in release mode"
+run = "python3 build.py plugin --release"
+sources = ["src/**/*.rs", "Cargo.toml", "Cargo.lock", "build.rs"]
+outputs = [
+  "target/release/libtauri_plugin_mcp.*",
+  "target/release/*.d",
+  "target/release/*.rlib",
+]
+depends = ["install:plugin"]
+
+[tasks."build:plugin-js"]
+description = "Build JavaScript guest bindings for plugin"
+run = "bun run build"
+sources = [
+  "guest-js/**/*.ts",
+  "guest-js/**/*.js",
+  "rollup.config.js",
+  "tsconfig.json",
+]
+outputs = ["dist-js/**/*"]
+depends = ["install:plugin-js"]
+
+[tasks."build:mcp"]
+description = "Build MCP TypeScript server"
+run = "python3 build.py mcp"
+sources = [
+  "mcp-server-ts/src/**/*.ts",
+  "mcp-server-ts/tsconfig.json",
+  "mcp-server-ts/package.json",
+]
+outputs = ["mcp-server-ts/build/**/*"]
+depends = ["install:mcp"]
+
+[tasks.build]
+description = "Build all project artifacts (plugin + MCP server)"
+depends = ["build:plugin", "build:plugin-js", "build:mcp"]
+
+[tasks.default]
+alias = "build"
+
+# =================================================================
+# DEVELOPMENT TASKS
+# =================================================================
+# Tasks for development workflow including watching and testing
+
+[tasks.dev]
+description = "Start development mode with file watching"
+run = """
+echo "Starting development mode..."
+echo "This will watch for changes and rebuild automatically"
+mise watch -t build
+"""
+
+[tasks."test:plugin"]
+description = "Run Rust tests for Tauri plugin"
+run = "cargo test --all-features"
+depends = ["install:plugin"]
+
+[tasks.test]
+description = "Run all tests"
+depends = ["test:plugin"]
+
+[tasks.check]
+description = "Run code quality checks (clippy, format check)"
+run = """
+echo "Running cargo clippy..."
+cargo clippy --all-features --all-targets -- -D warnings
+echo "Checking formatting..."
+cargo fmt -- --check
+"""
+depends = ["install:plugin"]
+
+[tasks.fmt]
+description = "Format all code (Rust and TypeScript)"
+run = """
+echo "Formatting Rust code..."
+cargo fmt
+echo "Formatting TypeScript code..."
+cd mcp-server-ts && bun run format 2>/dev/null || echo "No format script found"
+"""
+
+# =================================================================
+# PUBLISHING TASKS
+# =================================================================
+# Publishing tasks with strict dependency chains to ensure
+# artifacts are built before publishing.
+
+[tasks."publish:plugin"]
+description = "Publish Tauri plugin to crates.io"
+run = "python3 publish.py plugin --bump patch"
+depends = ["build:plugin", "test:plugin"]
+
+[tasks."publish:mcp"]
+description = "Publish MCP server to npm registry"
+run = "python3 publish.py mcp --bump patch"
+depends = ["build:mcp"]
+
+[tasks.publish]
+description = "Publish all artifacts (plugin + MCP server)"
+depends = ["publish:plugin", "publish:mcp"]
+
+# Alternative bump versions
+[tasks."publish:plugin-minor"]
+description = "Publish Tauri plugin with minor version bump"
+run = "python3 publish.py plugin --bump minor"
+depends = ["build:plugin", "test:plugin"]
+
+[tasks."publish:plugin-major"]
+description = "Publish Tauri plugin with major version bump"
+run = "python3 publish.py plugin --bump major"
+depends = ["build:plugin", "test:plugin"]
+
+[tasks."publish:mcp-minor"]
+description = "Publish MCP server with minor version bump"
+run = "python3 publish.py mcp --bump minor"
+depends = ["build:mcp"]
+
+[tasks."publish:mcp-major"]
+description = "Publish MCP server with major version bump"
+run = "python3 publish.py mcp --bump major"
+depends = ["build:mcp"]
+
+# =================================================================
+# UTILITY TASKS
+# =================================================================
+# Maintenance and utility tasks
+
+[tasks.clean]
+description = "Remove all build artifacts and dependencies"
+run = """
+echo "Cleaning build artifacts..."
+rm -rf target/
+rm -rf dist-js/
+rm -rf mcp-server-ts/build/
+rm -rf node_modules/
+rm -rf mcp-server-ts/node_modules/
+rm -rf .venv/
+cargo clean
+echo "Clean complete!"
+"""
+
+[tasks."clean:build"]
+description = "Remove only build artifacts (keep dependencies)"
+run = """
+echo "Cleaning build artifacts only..."
+rm -rf target/release/
+rm -rf target/debug/
+rm -rf dist-js/
+rm -rf mcp-server-ts/build/
+echo "Build artifacts cleaned!"
+"""
+
+[tasks.verify]
+description = "Full verification: clean, install, build, test"
+depends = ["clean", "install"]
+wait_for = ["install"]
+depends_post = ["build", "test", "check"]
+
+[tasks.doctor]
+description = "Check development environment health"
+run = """
+echo "=== Development Environment Health Check ==="
+echo ""
+echo "Tool Versions:"
+echo "  Node: $(node --version)"
+echo "  Bun: $(bun --version)"
+echo "  Rust: $(rustc --version)"
+echo "  Cargo: $(cargo --version)"
+echo "  Python: $(python3 --version)"
+echo ""
+echo "Project Structure:"
+echo "  Tauri Plugin Source: $([ -d src ] && echo '✓' || echo '✗')"
+echo "  MCP Server Source: $([ -d mcp-server-ts/src ] && echo '✓' || echo '✗')"
+echo "  Build Scripts: $([ -f build.py ] && echo '✓' || echo '✗')"
+echo "  Publish Scripts: $([ -f publish.py ] && echo '✓' || echo '✗')"
+echo ""
+echo "Dependencies:"
+echo "  Plugin dependencies: $([ -d target ] && echo '✓' || echo '✗ (run: mise run install:plugin)')"
+echo "  Plugin JS dependencies: $([ -d node_modules ] && echo '✓' || echo '✗ (run: mise run install:plugin-js)')"
+echo "  MCP dependencies: $([ -d mcp-server-ts/node_modules ] && echo '✓' || echo '✗ (run: mise run install:mcp)')"
+echo ""
+echo "Build Outputs:"
+echo "  Plugin binary: $([ -f target/release/libtauri_plugin_mcp.so ] || [ -f target/release/libtauri_plugin_mcp.dylib ] || [ -f target/release/tauri_plugin_mcp.dll ] && echo '✓' || echo '✗ (run: mise run build:plugin)')"
+echo "  Plugin JS dist: $([ -d dist-js ] && [ -n "$(ls -A dist-js 2>/dev/null)" ] && echo '✓' || echo '✗ (run: mise run build:plugin-js)')"
+echo "  MCP server build: $([ -d mcp-server-ts/build ] && [ -n "$(ls -A mcp-server-ts/build 2>/dev/null)" ] && echo '✓' || echo '✗ (run: mise run build:mcp)')"
+echo ""
+echo "=== End Health Check ==="
+"""
+
+[tasks.ls]
+description = "List all available mise tasks with descriptions"
+run = "mise tasks ls"
+
+# =================================================================
+# QUICK ALIASES
+# =================================================================
+# Convenient shortcuts for common operations
+
+[tasks.b]
+alias = "build"
+
+[tasks.t]
+alias = "test"
+
+[tasks.c]
+alias = "clean"
+
+[tasks.i]
+alias = "install"
+
+[tasks.p]
+alias = "publish"

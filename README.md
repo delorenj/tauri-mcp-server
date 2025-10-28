@@ -26,16 +26,40 @@ The Tauri MCP Plugin provides a comprehensive set of tools that allow AI models 
 
 ## Quick Start
 
-### Building the Plugin
+### Prerequisites
+
+- **Python 3.12+** - For the build script
+- **Rust & Cargo** - For building the Tauri plugin
+- **Bun or npm** - For building TypeScript components
+
+### Building the Project
+
+This project uses a modern Python build system for managing both artifacts:
 
 ```bash
-bun install
-bun run build && bun run build-plugin
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Build everything (recommended)
+python build.py all
+
+# Or build individually
+python build.py plugin  # Build Rust plugin + JS bindings
+python build.py mcp     # Build TypeScript MCP server
 ```
 
-### MCP Server Setup
+For detailed build options and documentation, see [BUILD.md](./BUILD.md).
+
+### Legacy Build Commands
+
+If you prefer manual builds:
 
 ```bash
+# Plugin
+bun install
+bun run build && bun run build-plugin
+
+# MCP Server
 cd mcp-server-ts
 bun install
 bun run build
