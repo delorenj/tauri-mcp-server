@@ -84,6 +84,7 @@ Add to your Claude Code or Cursor MCP settings:
 
 - **[Setup Guide](./docs/SETUP.md)** - Detailed integration instructions
 - **[MCP Server](./docs/MCP_SERVER.md)** - Available tools and configuration
+- **[Mise Environment Setup](./docs/MISE_SETUP.md)** - Auto-start SSE server with mise
 - **[Troubleshooting](./docs/TROUBLESHOOTING.md)** - Common issues and solutions
 
 ## Architecture

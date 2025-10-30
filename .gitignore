@@ -132,3 +132,7 @@ coordination/orchestration/*
 claude-flow
 # Removed Windows wrapper files per user request
 hive-mind-prompt-*.txt
+
+# Mise runtime files
+.mise/tauri-mcp-server.pid
+.mise/tauri-mcp-server.log

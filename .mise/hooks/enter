@@ -1,0 +1,35 @@
+#!/bin/bash
+# .mise/hooks/enter - Auto-start Tauri MCP SSE server when entering directory
+# This hook runs every time you cd into this directory
+
+set -euo pipefail
+
+# Only run if we have the necessary files
+if [[ ! -f "mise.toml" ]] || [[ ! -f "mcp-server-ts/package.json" ]]; then
+	exit 0
+fi
+
+# Check if server is already running
+PIDFILE="${TAURI_MCP_PIDFILE:-.mise/tauri-mcp-server.pid}"
+if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+	# Server is running, just show status
+	PORT="${TAURI_MCP_SSE_PORT:-8467}"
+	HOST="${TAURI_MCP_SSE_HOST:-0.0.0.0}"
+	echo "🌐 Tauri MCP SSE server is running at http://$HOST:$PORT/sse"
+	exit 0
+fi
+
+# Auto-start the server
+echo "🚀 Auto-starting Tauri MCP SSE server..."
+mise run mcp:start
+
+# Show helpful information
+echo ""
+echo "📋 Available commands:"
+echo "   mise run mcp:status   - Check server status"
+echo "   mise run mcp:stop     - Stop the server"
+echo "   mise run mcp:restart  - Restart the server"
+echo "   mise run mcp:logs     - View server logs"
+echo ""
+echo "🔧 Claude Code configuration:"
+echo "   claude mcp add tauri-mcp-sse http://${TAURI_MCP_SSE_HOST:-127.0.0.1}:${TAURI_MCP_SSE_PORT:-8467}/sse"

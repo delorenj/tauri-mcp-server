@@ -29,10 +29,13 @@ export function registerAllTools(server: McpServer) {
 // Function to initialize socket connection (can be awaited before registering tools)
 export async function initializeSocket(): Promise<void> {
   try {
+    console.error("Starting socket client connection...");
     await socketClient.connect();
     console.error("Socket connection initialized successfully");
   } catch (error) {
     console.error("Failed to initialize socket connection:", error);
+    console.error("Error details:", error instanceof Error ? error.message : String(error));
+    console.error("Error stack:", error instanceof Error ? error.stack : 'No stack trace');
     // Don't rethrow - allow operation to continue without socket
   }
-} 
+}

@@ -20,8 +20,34 @@ npm install -g tauri-mcp-server
 
 ## Usage
 
+The server supports two transport methods:
+
+### Transport Options
+
+#### 1. Stdio Transport (Default)
+```bash
+# Run with stdio transport (default)
+tauri-mcp-server
+
+# Or explicitly specify stdio
+tauri-mcp-server --transport stdio
+```
+
+#### 2. SSE Transport (Server-Sent Events)
+```bash
+# Run with SSE transport on default port 8467
+tauri-mcp-server --transport sse
+
+# Run with SSE on custom port
+tauri-mcp-server --transport sse --port 9000
+
+# Run with SSE on custom host and port
+tauri-mcp-server --transport sse --host 0.0.0.0 --port 8467
+```
+
 ### With Claude Desktop
 
+#### Stdio Transport Configuration
 Add to your Claude Desktop MCP settings:
 
 ```json
@@ -32,6 +58,24 @@ Add to your Claude Desktop MCP settings:
     }
   }
 }
+```
+
+#### SSE Transport Configuration
+For SSE transport, configure as an HTTP server:
+
+```json
+{
+  "mcpServers": {
+    "tauri-mcp": {
+      "url": "http://127.0.0.1:8467/sse"
+    }
+  }
+}
+```
+
+Then start the server separately:
+```bash
+tauri-mcp-server --transport sse
 ```
 
 ### With Cursor

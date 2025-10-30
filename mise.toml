@@ -37,6 +37,10 @@ cargo = "latest"                  # For Rust plugin compilation
 [env]
 RUST_BACKTRACE = "1"
 CARGO_INCREMENTAL = "1"
+# MCP Server Configuration
+TAURI_MCP_SSE_PORT = "8467"
+TAURI_MCP_SSE_HOST = "127.0.0.1"
+TAURI_MCP_PIDFILE = ".mise/tauri-mcp-server.pid"
 
 # =================================================================
 # INSTALLATION TASKS
@@ -302,3 +306,180 @@ alias = "install"
 
 [tasks.p]
 alias = "publish"
+
+# =================================================================
+# MCP SERVER MANAGEMENT
+# =================================================================
+# Tasks for managing the Tauri MCP SSE server automatically
+
+[tasks."mcp:start"]
+description = "Start the Tauri MCP SSE server in background"
+run = '''
+#!/bin/bash
+set -euo pipefail
+
+PIDFILE="${TAURI_MCP_PIDFILE}"
+PORT="${TAURI_MCP_SSE_PORT:-8467}"
+HOST="${TAURI_MCP_SSE_HOST:-127.0.0.1}"
+
+# Create .mise directory if it doesn't exist
+mkdir -p "$(dirname "$PIDFILE")"
+
+# Check if server is already running
+if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    echo "✓ Tauri MCP SSE server already running on http://$HOST:$PORT/sse (PID: $(cat "$PIDFILE"))"
+    exit 0
+fi
+
+# Build the MCP server if needed
+if [[ ! -f "mcp-server-ts/build/index.js" ]] || [[ "mcp-server-ts/src/index.ts" -nt "mcp-server-ts/build/index.js" ]]; then
+    echo "🔨 Building MCP server..."
+    cd mcp-server-ts && bun run build && cd ..
+fi
+
+# Start the server in background
+echo "🚀 Starting Tauri MCP SSE server on http://$HOST:$PORT/sse..."
+nohup node mcp-server-ts/build/index.js --transport sse --host "$HOST" --port "$PORT" \
+    > .mise/tauri-mcp-server.log 2>&1 &
+
+# Save PID
+echo $! > "$PIDFILE"
+
+# Wait a moment and verify it started
+sleep 2
+if kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    echo "✅ Tauri MCP SSE server started successfully (PID: $(cat "$PIDFILE"))"
+    echo "📋 Logs: tail -f .mise/tauri-mcp-server.log"
+    echo "🌐 Endpoint: http://$HOST:$PORT/sse"
+else
+    echo "❌ Failed to start Tauri MCP SSE server"
+    rm -f "$PIDFILE"
+    exit 1
+fi
+'''
+depends = ["build:mcp"]
+
+[tasks."mcp:stop"]
+description = "Stop the Tauri MCP SSE server"
+run = '''
+#!/bin/bash
+set -euo pipefail
+
+PIDFILE="${TAURI_MCP_PIDFILE}"
+
+if [[ ! -f "$PIDFILE" ]]; then
+    echo "ℹ️  Tauri MCP SSE server is not running (no PID file)"
+    exit 0
+fi
+
+PID=$(cat "$PIDFILE")
+if ! kill -0 "$PID" 2>/dev/null; then
+    echo "ℹ️  Tauri MCP SSE server is not running (stale PID file)"
+    rm -f "$PIDFILE"
+    exit 0
+fi
+
+echo "🛑 Stopping Tauri MCP SSE server (PID: $PID)..."
+kill "$PID"
+
+# Wait for graceful shutdown
+for i in {1..10}; do
+    if ! kill -0 "$PID" 2>/dev/null; then
+        break
+    fi
+    sleep 0.5
+done
+
+# Force kill if still running
+if kill -0 "$PID" 2>/dev/null; then
+    echo "⚠️  Force killing server..."
+    kill -9 "$PID"
+fi
+
+rm -f "$PIDFILE"
+echo "✅ Tauri MCP SSE server stopped"
+'''
+
+[tasks."mcp:restart"]
+description = "Restart the Tauri MCP SSE server"
+run = "mise run mcp:stop && mise run mcp:start"
+
+[tasks."mcp:status"]
+description = "Check Tauri MCP SSE server status"
+run = '''
+#!/bin/bash
+set -euo pipefail
+
+PIDFILE="${TAURI_MCP_PIDFILE}"
+PORT="${TAURI_MCP_SSE_PORT:-8467}"
+HOST="${TAURI_MCP_SSE_HOST:-127.0.0.1}"
+
+if [[ ! -f "$PIDFILE" ]]; then
+    echo "❌ Tauri MCP SSE server is not running (no PID file)"
+    exit 1
+fi
+
+PID=$(cat "$PIDFILE")
+if ! kill -0 "$PID" 2>/dev/null; then
+    echo "❌ Tauri MCP SSE server is not running (stale PID file)"
+    rm -f "$PIDFILE"
+    exit 1
+fi
+
+echo "✅ Tauri MCP SSE server is running"
+echo "   PID: $PID"
+echo "   Endpoint: http://$HOST:$PORT/sse"
+echo "   Logs: tail -f .mise/tauri-mcp-server.log"
+
+# Test the endpoint
+if command -v curl >/dev/null 2>&1; then
+    echo "   Testing endpoint..."
+    if timeout 3 curl -s "http://$HOST:$PORT/sse" >/dev/null; then
+        echo "   ✅ Endpoint is responding"
+    else
+        echo "   ⚠️  Endpoint is not responding"
+    fi
+fi
+'''
+
+[tasks."mcp:logs"]
+description = "Show Tauri MCP SSE server logs"
+run = '''
+if [[ -f ".mise/tauri-mcp-server.log" ]]; then
+    tail -f .mise/tauri-mcp-server.log
+else
+    echo "❌ No log file found. Is the server running?"
+    exit 1
+fi
+'''
+
+[tasks."mcp:configure-claude"]
+description = "Configure Claude Code to use the Tauri MCP server"
+run = '''
+#!/bin/bash
+set -euo pipefail
+
+WRAPPER_PATH="$(pwd)/scripts/tauri-mcp-wrapper.sh"
+
+echo "🔧 Configuring Claude Code for Tauri MCP Server..."
+
+# Remove any existing configurations
+claude mcp remove tauri-plugin 2>/dev/null || true
+claude mcp remove tauri-mcp 2>/dev/null || true
+claude mcp remove tauri-mcp-sse 2>/dev/null || true
+
+# Add the new configuration
+claude mcp add tauri-mcp "$WRAPPER_PATH"
+
+echo "✅ Claude Code configured successfully!"
+echo ""
+echo "📋 Configuration details:"
+echo "   Server name: tauri-mcp"
+echo "   Command: $WRAPPER_PATH"
+echo "   Transport: stdio"
+echo ""
+echo "🧪 Test the connection:"
+echo "   claude mcp list"
+echo ""
+echo "💡 The wrapper script automatically finds npx and works around PATH issues."
+'''

@@ -1,0 +1,19 @@
+#!/bin/bash
+# .mise/hooks/leave - Optional cleanup when leaving directory
+# This hook runs when you cd out of this directory
+
+set -euo pipefail
+
+# Check if TAURI_MCP_AUTO_STOP is set to enable auto-stop
+if [[ "${TAURI_MCP_AUTO_STOP:-}" == "true" ]]; then
+    echo "🛑 Auto-stopping Tauri MCP SSE server..."
+    mise run mcp:stop 2>/dev/null || true
+fi
+
+# If not auto-stopping, just show a reminder
+PIDFILE="${TAURI_MCP_PIDFILE:-.mise/tauri-mcp-server.pid}"
+if [[ -f "$PIDFILE" ]] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    echo "ℹ️  Tauri MCP SSE server is still running in background"
+    echo "   To stop: cd $(pwd) && mise run mcp:stop"
+    echo "   To enable auto-stop: export TAURI_MCP_AUTO_STOP=true"
+fi
